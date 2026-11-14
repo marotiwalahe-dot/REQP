@@ -1,0 +1,136 @@
+name: Build and Publish Debug APK
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release-apk:
+    name: Build Debug APK & Publish Release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Detect Gradle version
+        id: gradle_ver
+        shell: bash
+        run: |
+          VERSION=""
+          if [ -f gradle/wrapper/gradle-wrapper.properties ]; then
+            VERSION=$(grep -oE 'gradle-[0-9]+\.[0-9]+(\.[0-9]+)?(-[a-zA-Z0-9]+)?-(bin|all)\.zip' gradle/wrapper/gradle-wrapper.properties \
+              | head -n 1 \
+              | sed -E 's/^gradle-(.*)-(bin|all)\.zip$/\1/')
+          fi
+          if [ -z "$VERSION" ]; then
+            VERSION="9.3.1"
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Detected Gradle version: $VERSION"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: ${{ steps.gradle_ver.outputs.version }}
+
+      - name: Accept Android SDK licenses
+        shell: bash
+        run: |
+          SDK_DIR="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          if [ -x "$SDK_DIR/cmdline-tools/latest/bin/sdkmanager" ]; then
+            yes | "$SDK_DIR/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null 2>&1 || true
+          fi
+
+      - name: Prepare debug keystore
+        shell: bash
+        run: |
+          if [ ! -f debug.keystore ]; then
+            if [ -f debug.keystore.base64 ]; then
+              base64 -d debug.keystore.base64 > debug.keystore
+              echo "Decoded debug.keystore from debug.keystore.base64"
+            else
+              keytool -genkeypair -v \
+                -keystore debug.keystore \
+                -storepass android \
+                -alias androiddebugkey \
+                -keypass android \
+                -keyalg RSA \
+                -keysize 2048 \
+                -validity 10000 \
+                -dname "CN=Android Debug,O=Android,C=US"
+              echo "Generated fallback debug.keystore"
+            fi
+          fi
+
+      - name: Build Debug APK
+        shell: bash
+        run: |
+          if [ -f ./gradlew ]; then
+            chmod +x ./gradlew
+            ./gradlew :app:assembleDebug --no-daemon --stacktrace
+          else
+            gradle :app:assembleDebug --no-daemon --stacktrace
+          fi
+
+      - name: Collect Debug APK
+        id: collect_apk
+        shell: bash
+        run: |
+          mkdir -p release-dist
+          APK_PATH=$(find app/build/outputs/apk/debug -maxdepth 2 -type f -name "*.apk" ! -name "*-unsigned.apk" | sort | head -n 1)
+          if [ -z "$APK_PATH" ]; then
+            APK_PATH=$(find app/build/outputs/apk -type f -name "*debug*.apk" ! -name "*-unsigned.apk" | sort | head -n 1)
+          fi
+          if [ -z "$APK_PATH" ] || [ ! -f "$APK_PATH" ]; then
+            echo "Error: Could not find compiled debug APK." >&2
+            exit 1
+          fi
+          cp "$APK_PATH" release-dist/app-debug.apk
+          ls -lh release-dist/app-debug.apk
+          echo "apk_path=release-dist/app-debug.apk" >> "$GITHUB_OUTPUT"
+
+      - name: Upload Debug APK Workflow Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-debug-apk
+          path: ${{ steps.collect_apk.outputs.apk_path }}
+          if-no-files-found: error
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v1.0.${{ github.run_number }}
+          name: Android Debug APK v1.0.${{ github.run_number }}
+          body: |
+            Automated Android Debug APK build from commit `${{ github.sha }}`.
+
+            Direct permanent APK download link:
+            https://github.com/${{ github.repository }}/releases/latest/download/app-debug.apk
+          draft: false
+          prerelease: false
+          make_latest: true
+          generate_release_notes: true
+          files: ${{ steps.collect_apk.outputs.apk_path }}
+
+      - name: Write Download URL Summary
+        shell: bash
+        run: |
+          {
+            echo "### Android Debug APK Published"
+            echo ""
+            echo "**Permanent Direct APK Download URL:**"
+            echo "https://github.com/${{ github.repository }}/releases/latest/download/app-debug.apk"
+          } >> "$GITHUB_STEP_SUMMARY"

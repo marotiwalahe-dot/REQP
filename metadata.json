@@ -1,0 +1,6 @@
+{
+  "name": "Secure Study",
+  "description": "Production-ready Android Secure PDF subscription platform with Yellow Liquid UI, BiometricPrompt app lock, FLAG_SECURE native PDF reader, Google Play Billing, and Cloud Firestore.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

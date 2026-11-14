@@ -1,0 +1,336 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global default deny safety net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- Reusable Hardened Helpers ---
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && (
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
+        (request.auth.token.email == 'marotiwalahe@gmail.com' && request.auth.token.email_verified == true)
+      );
+    }
+
+    function isActiveStudent(uid) {
+      return !exists(/databases/$(database)/documents/users/$(uid)) ||
+             get(/databases/$(database)/documents/users/$(uid)).data.status == 'active';
+    }
+
+    function hasActiveSubscription(uid) {
+      return exists(/databases/$(database)/documents/subscriptions/$(uid)) &&
+             get(/databases/$(database)/documents/subscriptions/$(uid)).data.status == 'active' &&
+             get(/databases/$(database)/documents/subscriptions/$(uid)).data.expiresAt > request.time;
+    }
+
+    // --- Validation Blueprints ---
+    function isValidUserProfile(data) {
+      return data.userId is string && isValidId(data.userId) &&
+             data.email is string && data.email.size() >= 3 && data.email.size() <= 256 &&
+             data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 120 &&
+             (!('photoUrl' in data) || data.photoUrl == null || (data.photoUrl is string && data.photoUrl.size() <= 500)) &&
+             data.role in ['student', 'admin'] &&
+             data.status in ['active', 'suspended'] &&
+             data.biometricLockEnabled is bool &&
+             data.inactivityTimeoutSec is int && data.inactivityTimeoutSec >= 0 && data.inactivityTimeoutSec <= 3600 &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidAdminRole(data) {
+      return data.userId is string && isValidId(data.userId) &&
+             data.email is string && data.email.size() >= 3 && data.email.size() <= 256 &&
+             data.grantedBy is string && data.grantedBy.size() >= 1 && data.grantedBy.size() <= 128 &&
+             data.createdAt is timestamp && data.createdAt <= request.time;
+    }
+
+    function isValidCategory(data) {
+      return data.name is string && data.name.size() >= 1 && data.name.size() <= 80 &&
+             data.slug is string && data.slug.size() >= 1 && data.slug.size() <= 80 &&
+             data.description is string && data.description.size() <= 300 &&
+             data.iconName is string && data.iconName.size() >= 1 && data.iconName.size() <= 50 &&
+             data.sortOrder is int && data.sortOrder >= 0 && data.sortOrder <= 1000 &&
+             data.isActive is bool &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidPdfDocument(data) {
+      return data.title is string && data.title.size() >= 1 && data.title.size() <= 140 &&
+             data.description is string && data.description.size() <= 1000 &&
+             data.categoryId is string && isValidId(data.categoryId) &&
+             data.categoryName is string && data.categoryName.size() >= 1 && data.categoryName.size() <= 80 &&
+             data.accessTier in ['free', 'premium'] &&
+             data.isPublished is bool &&
+             data.isFeatured is bool &&
+             data.pageCount is int && data.pageCount >= 1 && data.pageCount <= 5000 &&
+             data.fileSizeLabel is string && data.fileSizeLabel.size() >= 1 && data.fileSizeLabel.size() <= 40 &&
+             data.thumbnailColorHex is string && data.thumbnailColorHex.size() >= 4 && data.thumbnailColorHex.size() <= 16 &&
+             data.createdBy is string && isValidId(data.createdBy) &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidPdfPayload(data) {
+      return data.documentId is string && isValidId(data.documentId) &&
+             data.accessTier in ['free', 'premium'] &&
+             data.pdfBase64 is string && data.pdfBase64.size() <= 900000 &&
+             data.pageTexts is list && data.pageTexts.size() <= 50 &&
+             (data.pageTexts.size() == 0 || data.pageTexts[0] is string) &&
+             data.watermarkRequired is bool &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidSubscriptionPlan(data) {
+      return data.name is string && data.name.size() >= 1 && data.name.size() <= 80 &&
+             data.billingPeriod in ['monthly', 'quarterly', 'yearly'] &&
+             data.googlePlayProductId is string && data.googlePlayProductId.size() >= 1 && data.googlePlayProductId.size() <= 100 &&
+             data.displayPriceInr is int && data.displayPriceInr >= 0 && data.displayPriceInr <= 1000000 &&
+             data.durationDays is int && data.durationDays >= 1 && data.durationDays <= 3650 &&
+             data.badge is string && data.badge.size() <= 40 &&
+             data.features is list && data.features.size() <= 10 &&
+             (data.features.size() == 0 || data.features[0] is string) &&
+             data.isAvailable is bool &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidUserSubscription(data) {
+      return data.userId is string && isValidId(data.userId) &&
+             data.planId is string && isValidId(data.planId) &&
+             data.planName is string && data.planName.size() >= 1 && data.planName.size() <= 80 &&
+             data.productId is string && data.productId.size() >= 1 && data.productId.size() <= 100 &&
+             data.status in ['active', 'expired', 'cancelled', 'revoked', 'pending'] &&
+             data.source in ['google_play', 'phonepe_upi', 'admin_grant'] &&
+             data.purchaseToken is string && data.purchaseToken.size() >= 1 && data.purchaseToken.size() <= 512 &&
+             data.autoRenewing is bool &&
+             data.startedAt is timestamp &&
+             data.expiresAt is timestamp &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidPurchaseRecord(data) {
+      return data.userId is string && isValidId(data.userId) &&
+             data.userEmail is string && data.userEmail.size() >= 3 && data.userEmail.size() <= 256 &&
+             data.planId is string && isValidId(data.planId) &&
+             data.planName is string && data.planName.size() >= 1 && data.planName.size() <= 80 &&
+             data.paymentMethod in ['google_play', 'phonepe_upi'] &&
+             data.amountInr is int && data.amountInr >= 0 && data.amountInr <= 1000000 &&
+             data.purchaseToken is string && data.purchaseToken.size() >= 4 && data.purchaseToken.size() <= 512 &&
+             data.status in ['pending_verification', 'verified', 'rejected', 'refunded', 'failed'] &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidPdfAccessLog(data) {
+      return data.userId is string && isValidId(data.userId) &&
+             data.userEmail is string && data.userEmail.size() >= 3 && data.userEmail.size() <= 256 &&
+             data.documentId is string && isValidId(data.documentId) &&
+             data.documentTitle is string && data.documentTitle.size() >= 1 && data.documentTitle.size() <= 140 &&
+             data.action in ['authorized_open', 'denied_no_subscription', 'reader_closed', 'session_locked'] &&
+             data.createdAt is timestamp && data.createdAt <= request.time;
+    }
+
+    function isValidAuditLog(data) {
+      return data.actorId is string && isValidId(data.actorId) &&
+             data.actorEmail is string && data.actorEmail.size() >= 3 && data.actorEmail.size() <= 256 &&
+             data.eventType is string && data.eventType.size() >= 1 && data.eventType.size() <= 80 &&
+             data.targetId is string && data.targetId.size() >= 1 && data.targetId.size() <= 128 &&
+             data.details is string && data.details.size() <= 500 &&
+             data.createdAt is timestamp && data.createdAt <= request.time;
+    }
+
+    // --- Collection Rules ---
+
+    match /users/{userId} {
+      allow get: if isSignedIn() && isValidId(userId) && (isOwner(userId) || isAdmin());
+      allow list: if isAdmin();
+      allow create: if isSignedIn() &&
+                       isValidId(userId) &&
+                       isOwner(userId) &&
+                       isValidUserProfile(incoming()) &&
+                       incoming().userId == request.auth.uid &&
+                       incoming().role == 'student' &&
+                       incoming().status == 'active' &&
+                       incoming().keys().hasAll(['userId', 'email', 'displayName', 'role', 'status', 'biometricLockEnabled', 'inactivityTimeoutSec', 'createdAt', 'updatedAt']) &&
+                       incoming().keys().hasOnly(['userId', 'email', 'displayName', 'photoUrl', 'role', 'status', 'biometricLockEnabled', 'inactivityTimeoutSec', 'createdAt', 'updatedAt']);
+      allow update: if isSignedIn() &&
+                       isValidId(userId) &&
+                       isValidUserProfile(incoming()) &&
+                       incoming().userId == existing().userId &&
+                       incoming().createdAt == existing().createdAt &&
+                       (
+                         isAdmin() ||
+                         (
+                           isOwner(userId) &&
+                           incoming().role == existing().role &&
+                           incoming().status == existing().status &&
+                           incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'photoUrl', 'biometricLockEnabled', 'inactivityTimeoutSec', 'updatedAt'])
+                         )
+                       );
+      allow delete: if isAdmin();
+    }
+
+    match /admins/{userId} {
+      allow get: if isSignedIn() && isValidId(userId) && (isOwner(userId) || isAdmin());
+      allow list: if isAdmin();
+      allow create: if isAdmin() &&
+                       isValidId(userId) &&
+                       isValidAdminRole(incoming()) &&
+                       incoming().keys().hasAll(['userId', 'email', 'grantedBy', 'createdAt']) &&
+                       incoming().keys().hasOnly(['userId', 'email', 'grantedBy', 'createdAt']);
+      allow update: if false;
+      allow delete: if isAdmin();
+    }
+
+    match /categories/{categoryId} {
+      allow get: if isSignedIn() && isValidId(categoryId) && (existing().isActive == true || isAdmin());
+      allow list: if isSignedIn() && (existing().isActive == true || isAdmin());
+      allow create: if isAdmin() &&
+                       isValidId(categoryId) &&
+                       isValidCategory(incoming()) &&
+                       incoming().keys().hasAll(['name', 'slug', 'description', 'iconName', 'sortOrder', 'isActive', 'createdAt', 'updatedAt']) &&
+                       incoming().keys().hasOnly(['name', 'slug', 'description', 'iconName', 'sortOrder', 'isActive', 'createdAt', 'updatedAt']);
+      allow update: if isAdmin() &&
+                       isValidId(categoryId) &&
+                       isValidCategory(incoming()) &&
+                       incoming().createdAt == existing().createdAt;
+      allow delete: if isAdmin();
+    }
+
+    match /pdf_documents/{docId} {
+      allow get: if isSignedIn() && isValidId(docId) && (existing().isPublished == true || isAdmin());
+      allow list: if isSignedIn() && (existing().isPublished == true || isAdmin());
+      allow create: if isAdmin() &&
+                       isValidId(docId) &&
+                       isValidPdfDocument(incoming()) &&
+                       incoming().createdBy == request.auth.uid &&
+                       incoming().keys().hasAll(['title', 'description', 'categoryId', 'categoryName', 'accessTier', 'isPublished', 'isFeatured', 'pageCount', 'fileSizeLabel', 'thumbnailColorHex', 'createdBy', 'createdAt', 'updatedAt']) &&
+                       incoming().keys().hasOnly(['title', 'description', 'categoryId', 'categoryName', 'accessTier', 'isPublished', 'isFeatured', 'pageCount', 'fileSizeLabel', 'thumbnailColorHex', 'createdBy', 'createdAt', 'updatedAt']);
+      allow update: if isAdmin() &&
+                       isValidId(docId) &&
+                       isValidPdfDocument(incoming()) &&
+                       incoming().createdAt == existing().createdAt &&
+                       incoming().createdBy == existing().createdBy;
+      allow delete: if isAdmin();
+    }
+
+    match /pdf_payloads/{docId} {
+      allow get: if isSignedIn() &&
+                    isValidId(docId) &&
+                    isActiveStudent(request.auth.uid) &&
+                    (
+                      isAdmin() ||
+                      (
+                        exists(/databases/$(database)/documents/pdf_documents/$(docId)) &&
+                        get(/databases/$(database)/documents/pdf_documents/$(docId)).data.isPublished == true &&
+                        (
+                          get(/databases/$(database)/documents/pdf_documents/$(docId)).data.accessTier == 'free' ||
+                          hasActiveSubscription(request.auth.uid)
+                        )
+                      )
+                    );
+      allow list: if isAdmin();
+      allow create, update: if isAdmin() &&
+                               isValidId(docId) &&
+                               isValidPdfPayload(incoming()) &&
+                               incoming().documentId == docId &&
+                               incoming().keys().hasAll(['documentId', 'accessTier', 'pdfBase64', 'pageTexts', 'watermarkRequired', 'updatedAt']) &&
+                               incoming().keys().hasOnly(['documentId', 'accessTier', 'pdfBase64', 'pageTexts', 'watermarkRequired', 'updatedAt']);
+      allow delete: if isAdmin();
+    }
+
+    match /subscription_plans/{planId} {
+      allow get: if isSignedIn() && isValidId(planId) && (existing().isAvailable == true || isAdmin());
+      allow list: if isSignedIn() && (existing().isAvailable == true || isAdmin());
+      allow create: if isAdmin() &&
+                       isValidId(planId) &&
+                       isValidSubscriptionPlan(incoming()) &&
+                       incoming().keys().hasAll(['name', 'billingPeriod', 'googlePlayProductId', 'displayPriceInr', 'durationDays', 'badge', 'features', 'isAvailable', 'createdAt', 'updatedAt']) &&
+                       incoming().keys().hasOnly(['name', 'billingPeriod', 'googlePlayProductId', 'displayPriceInr', 'durationDays', 'badge', 'features', 'isAvailable', 'createdAt', 'updatedAt']);
+      allow update: if isAdmin() &&
+                       isValidId(planId) &&
+                       isValidSubscriptionPlan(incoming()) &&
+                       incoming().createdAt == existing().createdAt;
+      allow delete: if isAdmin();
+    }
+
+    match /subscriptions/{userId} {
+      allow get: if isSignedIn() && isValidId(userId) && (isOwner(userId) || isAdmin());
+      allow list: if isSignedIn() && (existing().userId == request.auth.uid || isAdmin());
+      allow create, update: if isAdmin() &&
+                               isValidId(userId) &&
+                               isValidUserSubscription(incoming()) &&
+                               incoming().userId == userId &&
+                               incoming().keys().hasAll(['userId', 'planId', 'planName', 'productId', 'status', 'source', 'purchaseToken', 'autoRenewing', 'startedAt', 'expiresAt', 'updatedAt']) &&
+                               incoming().keys().hasOnly(['userId', 'planId', 'planName', 'productId', 'status', 'source', 'purchaseToken', 'autoRenewing', 'startedAt', 'expiresAt', 'updatedAt']);
+      allow delete: if isAdmin();
+    }
+
+    match /purchases/{purchaseId} {
+      allow get: if isSignedIn() && isValidId(purchaseId) && (existing().userId == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (existing().userId == request.auth.uid || isAdmin());
+      allow create: if isSignedIn() &&
+                       isValidId(purchaseId) &&
+                       isValidPurchaseRecord(incoming()) &&
+                       incoming().userId == request.auth.uid &&
+                       incoming().status == 'pending_verification' &&
+                       incoming().keys().hasAll(['userId', 'userEmail', 'planId', 'planName', 'paymentMethod', 'amountInr', 'purchaseToken', 'status', 'createdAt', 'updatedAt']) &&
+                       incoming().keys().hasOnly(['userId', 'userEmail', 'planId', 'planName', 'paymentMethod', 'amountInr', 'purchaseToken', 'status', 'createdAt', 'updatedAt']) &&
+                       exists(/databases/$(database)/documents/subscription_plans/$(incoming().planId));
+      allow update: if isAdmin() &&
+                       isValidId(purchaseId) &&
+                       isValidPurchaseRecord(incoming()) &&
+                       incoming().userId == existing().userId &&
+                       incoming().createdAt == existing().createdAt &&
+                       incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt']);
+      allow delete: if isAdmin();
+    }
+
+    match /pdf_access_logs/{logId} {
+      allow get: if isSignedIn() && isValidId(logId) && (existing().userId == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (existing().userId == request.auth.uid || isAdmin());
+      allow create: if isSignedIn() &&
+                       isValidId(logId) &&
+                       isValidPdfAccessLog(incoming()) &&
+                       incoming().userId == request.auth.uid &&
+                       incoming().keys().hasAll(['userId', 'userEmail', 'documentId', 'documentTitle', 'action', 'createdAt']) &&
+                       incoming().keys().hasOnly(['userId', 'userEmail', 'documentId', 'documentTitle', 'action', 'createdAt']);
+      allow update, delete: if false;
+    }
+
+    match /audit_logs/{logId} {
+      allow get, list: if isAdmin();
+      allow create: if isAdmin() &&
+                       isValidId(logId) &&
+                       isValidAuditLog(incoming()) &&
+                       incoming().actorId == request.auth.uid &&
+                       incoming().keys().hasAll(['actorId', 'actorEmail', 'eventType', 'targetId', 'details', 'createdAt']) &&
+                       incoming().keys().hasOnly(['actorId', 'actorEmail', 'eventType', 'targetId', 'details', 'createdAt']);
+      allow update, delete: if false;
+    }
+  }
+}

@@ -1,0 +1,296 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Authenticated student or admin profile and local biometric security preferences",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "email": { "type": "string" },
+        "displayName": { "type": "string" },
+        "photoUrl": { "type": "string" },
+        "role": { "type": "string", "enum": ["student", "admin"] },
+        "status": { "type": "string", "enum": ["active", "suspended"] },
+        "biometricLockEnabled": { "type": "boolean" },
+        "inactivityTimeoutSec": { "type": "integer" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "userId",
+        "email",
+        "displayName",
+        "role",
+        "status",
+        "biometricLockEnabled",
+        "inactivityTimeoutSec",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "AdminRole": {
+      "title": "AdminRole",
+      "description": "Trusted admin role assignment document",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "email": { "type": "string" },
+        "grantedBy": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "email", "grantedBy", "createdAt"]
+    },
+    "StudyCategory": {
+      "title": "StudyCategory",
+      "description": "Subject category for organizing PDF study materials",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "slug": { "type": "string" },
+        "description": { "type": "string" },
+        "iconName": { "type": "string" },
+        "sortOrder": { "type": "integer" },
+        "isActive": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "name",
+        "slug",
+        "description",
+        "iconName",
+        "sortOrder",
+        "isActive",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "PdfDocumentMeta": {
+      "title": "PdfDocumentMeta",
+      "description": "Publicly listable study PDF metadata for authenticated users",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "categoryId": { "type": "string" },
+        "categoryName": { "type": "string" },
+        "accessTier": { "type": "string", "enum": ["free", "premium"] },
+        "isPublished": { "type": "boolean" },
+        "isFeatured": { "type": "boolean" },
+        "pageCount": { "type": "integer" },
+        "fileSizeLabel": { "type": "string" },
+        "thumbnailColorHex": { "type": "string" },
+        "createdBy": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "title",
+        "description",
+        "categoryId",
+        "categoryName",
+        "accessTier",
+        "isPublished",
+        "isFeatured",
+        "pageCount",
+        "fileSizeLabel",
+        "thumbnailColorHex",
+        "createdBy",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "PdfPayload": {
+      "title": "PdfPayload",
+      "description": "Entitlement-protected PDF document payload and searchable page text index",
+      "type": "object",
+      "properties": {
+        "documentId": { "type": "string" },
+        "accessTier": { "type": "string", "enum": ["free", "premium"] },
+        "pdfBase64": { "type": "string" },
+        "pageTexts": { "type": "array" },
+        "watermarkRequired": { "type": "boolean" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "documentId",
+        "accessTier",
+        "pdfBase64",
+        "pageTexts",
+        "watermarkRequired",
+        "updatedAt"
+      ]
+    },
+    "SubscriptionPlan": {
+      "title": "SubscriptionPlan",
+      "description": "Configurable subscription tier mapped to Google Play product IDs",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "billingPeriod": { "type": "string", "enum": ["monthly", "quarterly", "yearly"] },
+        "googlePlayProductId": { "type": "string" },
+        "displayPriceInr": { "type": "integer" },
+        "durationDays": { "type": "integer" },
+        "badge": { "type": "string" },
+        "features": { "type": "array" },
+        "isAvailable": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "name",
+        "billingPeriod",
+        "googlePlayProductId",
+        "displayPriceInr",
+        "durationDays",
+        "badge",
+        "features",
+        "isAvailable",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "UserSubscription": {
+      "title": "UserSubscription",
+      "description": "Server-verified subscription entitlement for a user",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "planId": { "type": "string" },
+        "planName": { "type": "string" },
+        "productId": { "type": "string" },
+        "status": {
+          "type": "string",
+          "enum": ["active", "expired", "cancelled", "revoked", "pending"]
+        },
+        "source": {
+          "type": "string",
+          "enum": ["google_play", "phonepe_upi", "admin_grant"]
+        },
+        "purchaseToken": { "type": "string" },
+        "autoRenewing": { "type": "boolean" },
+        "startedAt": { "type": "string", "format": "date-time" },
+        "expiresAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "userId",
+        "planId",
+        "planName",
+        "productId",
+        "status",
+        "source",
+        "purchaseToken",
+        "autoRenewing",
+        "startedAt",
+        "expiresAt",
+        "updatedAt"
+      ]
+    },
+    "PurchaseRecord": {
+      "title": "PurchaseRecord",
+      "description": "Payment transaction and token verification log",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "userEmail": { "type": "string" },
+        "planId": { "type": "string" },
+        "planName": { "type": "string" },
+        "paymentMethod": { "type": "string", "enum": ["google_play", "phonepe_upi"] },
+        "amountInr": { "type": "integer" },
+        "purchaseToken": { "type": "string" },
+        "status": {
+          "type": "string",
+          "enum": ["pending_verification", "verified", "rejected", "refunded", "failed"]
+        },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "userId",
+        "userEmail",
+        "planId",
+        "planName",
+        "paymentMethod",
+        "amountInr",
+        "purchaseToken",
+        "status",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "PdfAccessLog": {
+      "title": "PdfAccessLog",
+      "description": "Append-only log of PDF authorization and reading events",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "userEmail": { "type": "string" },
+        "documentId": { "type": "string" },
+        "documentTitle": { "type": "string" },
+        "action": {
+          "type": "string",
+          "enum": ["authorized_open", "denied_no_subscription", "reader_closed", "session_locked"]
+        },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "userEmail", "documentId", "documentTitle", "action", "createdAt"]
+    },
+    "AuditLog": {
+      "title": "AuditLog",
+      "description": "Append-only security and admin audit trail",
+      "type": "object",
+      "properties": {
+        "actorId": { "type": "string" },
+        "actorEmail": { "type": "string" },
+        "eventType": { "type": "string" },
+        "targetId": { "type": "string" },
+        "details": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["actorId", "actorEmail", "eventType", "targetId", "details", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "User profiles and biometric security settings"
+    },
+    "/admins/{userId}": {
+      "schema": { "$ref": "#/entities/AdminRole" },
+      "description": "Trusted admin role assignments"
+    },
+    "/categories/{categoryId}": {
+      "schema": { "$ref": "#/entities/StudyCategory" },
+      "description": "Subject categories"
+    },
+    "/pdf_documents/{docId}": {
+      "schema": { "$ref": "#/entities/PdfDocumentMeta" },
+      "description": "Study PDF metadata catalog"
+    },
+    "/pdf_payloads/{docId}": {
+      "schema": { "$ref": "#/entities/PdfPayload" },
+      "description": "Protected PDF content gated by active subscription entitlement"
+    },
+    "/subscription_plans/{planId}": {
+      "schema": { "$ref": "#/entities/SubscriptionPlan" },
+      "description": "Configurable subscription tiers"
+    },
+    "/subscriptions/{userId}": {
+      "schema": { "$ref": "#/entities/UserSubscription" },
+      "description": "Authoritative user subscription entitlement"
+    },
+    "/purchases/{purchaseId}": {
+      "schema": { "$ref": "#/entities/PurchaseRecord" },
+      "description": "Payment verification transactions"
+    },
+    "/pdf_access_logs/{logId}": {
+      "schema": { "$ref": "#/entities/PdfAccessLog" },
+      "description": "Immutable PDF access logs"
+    },
+    "/audit_logs/{logId}": {
+      "schema": { "$ref": "#/entities/AuditLog" },
+      "description": "Immutable admin audit logs"
+    }
+  }
+}
