@@ -43,15 +43,26 @@ jobs:
         with:
           gradle-version: ${{ steps.gradle_ver.outputs.version }}
 
-      - name: Accept Android SDK licenses
+      - name: Prepare Android SDK & accept licenses
         shell: bash
         run: |
           SDK_DIR="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          mkdir -p "$SDK_DIR/licenses"
           SDKMANAGER=$(find "$SDK_DIR" -name sdkmanager -type f 2>/dev/null | head -n 1 || true)
           if [ -n "$SDKMANAGER" ]; then
             chmod +x "$SDKMANAGER" || true
             set +o pipefail
-            yes | "$SDKMANAGER" --sdk_root="$SDK_DIR" --licenses || true
+            yes | "$SDKMANAGER" --sdk_root="$SDK_DIR" --licenses >/dev/null 2>&1 || true
+            SDK_API=$(grep -oE 'release\([0-9]+\)|compileSdk\s*=?\s*[0-9]+' app/build.gradle.kts app/build.gradle 2>/dev/null | grep -oE '[0-9]+' | head -n 1 || true)
+            SDK_MINOR=$(grep -oE 'minorApiLevel\s*=\s*[0-9]+' app/build.gradle.kts app/build.gradle 2>/dev/null | grep -oE '[0-9]+' | head -n 1 || true)
+            if [ -n "$SDK_API" ]; then
+              if [ -n "$SDK_MINOR" ]; then
+                "$SDKMANAGER" --sdk_root="$SDK_DIR" "platform-tools" "platforms;android-${SDK_API}.${SDK_MINOR}" "build-tools;${SDK_API}.0.0" || \
+                  "$SDKMANAGER" --sdk_root="$SDK_DIR" "platform-tools" "platforms;android-${SDK_API}" || true
+              else
+                "$SDKMANAGER" --sdk_root="$SDK_DIR" "platform-tools" "platforms;android-${SDK_API}" "build-tools;${SDK_API}.0.0" || true
+              fi
+            fi
           else
             echo "Warning: sdkmanager not found under $SDK_DIR"
           fi
@@ -81,11 +92,20 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
+          GRADLE_FLAGS=(
+            ":app:assembleDebug"
+            "--no-daemon"
+            "--no-parallel"
+            "--max-workers=2"
+            "--no-configuration-cache"
+            "-Dorg.gradle.jvmargs=-Xmx3g -XX:MaxMetaspaceSize=768m -Dfile.encoding=UTF-8"
+            "--stacktrace"
+          )
           if [ -f ./gradlew ]; then
             chmod +x ./gradlew
-            ./gradlew :app:assembleDebug --no-daemon --stacktrace 2>&1 | tee /tmp/gradle-build.log
+            ./gradlew "${GRADLE_FLAGS[@]}" 2>&1 | tee /tmp/gradle-build.log
           else
-            gradle :app:assembleDebug --no-daemon --stacktrace 2>&1 | tee /tmp/gradle-build.log
+            gradle "${GRADLE_FLAGS[@]}" 2>&1 | tee /tmp/gradle-build.log
           fi
 
       - name: Report Gradle Failure Details
@@ -94,9 +114,13 @@ jobs:
         run: |
           if [ -f /tmp/gradle-build.log ]; then
             {
-              echo "### Gradle Build Failure Log (Last 80 Lines)"
+              echo "### Gradle Build Failure Summary"
               echo '```text'
-              tail -n 80 /tmp/gradle-build.log
+              grep -nE 'FAILURE:|What went wrong:|Execution failed for task|Caused by:|^e: |ERROR:' /tmp/gradle-build.log | head -n 60 || true
+              echo '```'
+              echo "### Full Exception Section"
+              echo '```text'
+              sed -n '/FAILURE: Build failed/,/\* Exception is:/p' /tmp/gradle-build.log | head -n 80 || true
               echo '```'
             } >> "$GITHUB_STEP_SUMMARY"
           fi
